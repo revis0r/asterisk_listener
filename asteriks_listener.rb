@@ -12,7 +12,8 @@ module AsteriksListener
 			super("Host" => SERVER,
 						"Port" => PORT,
 						"Output_log" => "asteriks_log.log",
-						"Telnetmode" => false				
+						"Telnetmode" => false
+					  #	"Waittime"	 => 10				
 						)
 		end
 
@@ -20,12 +21,30 @@ module AsteriksListener
 			@sock.readline	# read just one line after connect - Asterisk Call Manager/1.1 	
 			response = AMI_Event.new (self.cmd("String" => LOGIN,
 																				 "Waittime" => 10,
-																				 "Match" => /\s{2}/n)#{|mess| STDERR.puts mess}
+																				 "Match" => /\s{2}/n)
 															 )
-			if response.event["Response"] == 'Success'
+			if response.event["Response"] == 'Success'				
 				true
 			else
 				STDERR.puts "Something goes wrong!\nAsteriks says: #{response.event['Message']}"
+				false
+			end
+		end
+
+		def listen_events
+			event = AMI_Event.new
+			count = 0				
+			while IO::select([@sock]) do
+				line = ''	
+				until /\s{2}/n === line do
+					line += @sock.readpartial(2048)					
+				end
+				event.read_event line
+				count += 1
+				
+				@log.print( "====#{count}====\n\n #{event.event.inspect}\n\n" )
+				
+				STDERR.puts line
 			end
 		end
 
@@ -45,8 +64,8 @@ module AsteriksListener
 		end
 
 		def read_event(response_text)
-			@source_string = response_text
-			#self.event=(response_text)
+			# convert AMI response to hash
+			@source_string = response_text			
 			response_array = []			
 			@source_string.split("\n").each do |str|
 				key_value = str.split(': ')
@@ -58,12 +77,7 @@ module AsteriksListener
 			self.event = Hash[response_array]
 		end
 
-		#def event
-			#@event
-		#end
-
-		#def event=(string)
-			# convert AMI response to hash
+		#def event=(string)			
 			#@event = Hash[*string.split("\n").map{ |s| s.split(": ")}.flatten]
 		#end
 
@@ -78,4 +92,6 @@ end
 include AsteriksListener
 
 conn = Connection.new
-str = conn.authorize
+if conn.authorize
+	conn.listen_events
+end
