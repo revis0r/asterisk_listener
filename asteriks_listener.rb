@@ -7,6 +7,8 @@ module AsteriksListener
 		PORT			= 3850
 		LOGIN			= "Action: Login\nUsername: crmmanager\nSecret: CrMPasswrd112\n"
 		MAX_FAILS = 10
+		attr_accessor :events, :cnt
+
 
 		def initialize(debug = false)
 			super("Host" => SERVER,
@@ -15,6 +17,7 @@ module AsteriksListener
 						"Telnetmode" => false
 					  #	"Waittime"	 => 10				
 						)
+			self.events = {}
 		end
 
 		def authorize()	
@@ -23,7 +26,7 @@ module AsteriksListener
 																				 "Waittime" => 10,
 																				 "Match" => /\s{2}/n)
 															 )
-			if response.event["Response"] == 'Success'				
+			if response.event["Response"] == 'Success'							
 				true
 			else
 				STDERR.puts "Something goes wrong!\nAsteriks says: #{response.event['Message']}"
@@ -33,24 +36,76 @@ module AsteriksListener
 
 		def listen_events
 			event = AMI_Event.new
-			count = 0				
-			while IO::select([@sock]) do
+			self.cnt = 0			
+			while self.cnt != 100 do
 				line = ''	
 				until /\s{2}/n === line do
-					line += @sock.readpartial(2048)					
+					line += @sock.readpartial(512)								
 				end
 				event.read_event line
-				count += 1
+				process_event event.event
 				
-				@log.print( "====#{count}====\n\n #{event.event.inspect}\n\n" )
-				
-				STDERR.puts line
+				#@log.print( "====#{count}====\n\n #{event.event.inspect}\n\n" )
+				STDERR.puts "#{self.cnt}\n#{line}"				
+				self.cnt += 1
+			end
+			self.events.each do |k, v|
+				@log.puts "\n\n===========#{k}=============\n"
+				v.each do |i, j|
+					@log.puts "\t#{i}\n"
+					j.each do |x, z|
+						@log.puts "\t\t#{x}: #{z}\n" 
+					end
+				end
 			end
 		end
 
 		def send_cmd(string)
 			# asterisk command ends with 2 linebreaks
 			write string + "\n\n"
+		end
+
+		def process_event(ami_event)			
+			unless ami_event.empty?	
+				#@log.puts ami_event["Event"]			
+				case ami_event["Event"]
+					when "Dial"						
+						if ami_event["SubEvent"] == 'Begin'							
+							#@log.puts "Dial started for SIP #{ami_event["Channel"]} \n\n"
+							save_event ami_event
+						elsif ami_event["SubEvent"] == 'End'							
+							#@log.puts "Dial ended for SIP #{ami_event["Channel"]} \n\n"
+							save_event ami_event
+						end
+					when 'NewCallerid'
+						#@log.puts "New Caller ID SIP = #{ami_event["Channel"]} and UniqueID = #{ami_event["Uniqueid"]} and Calleridnum = #{ami_event["CallerIDNum"]}\n"
+						save_event ami_event
+					when 'Bridge'				
+						#@log.puts "Bridge #{ami_event["Bridgestate"]}\n#{ami_event["Channel1"]} to #{ami_event["Channel2"]}\nu #{ami_event["CallerID1"]} to #{ami_event["CallerID2"]}\n\n"
+					when 'Unlink'
+						#@log.puts "Unlink \n#{ami_event["Channel1"]} to #{ami_event["Channel2"]}\n#{ami_event["CallerID1"]} to #{ami_event["CallerID2"]}\n\n"
+					when 'Hangup'
+						#@log.puts "Hangup #{ami_event["Channel"]}, number: #{ami_event["CallerIDNum"]}\n\n"
+						save_event ami_event
+						
+				end
+
+
+			end
+		end
+
+		def save_event(ami_event)
+			if ami_event.has_key? "Channel"
+				sip = %r{^\w{,5}/(\w*)}.match ami_event["Channel"]
+				if sip
+					unless self.events.has_key? sip[1]
+						self.events[sip[1]] = {}
+					end
+					self.events[sip[1]][ami_event["Event"] + "   #{Time.now.hour}:#{Time.now.min}"] = ami_event
+				end
+			elsif ami_event.has_key? "Channel1"
+
+			end
 		end
 	end
 
@@ -68,7 +123,7 @@ module AsteriksListener
 			@source_string = response_text			
 			response_array = []			
 			@source_string.split("\n").each do |str|
-				key_value = str.split(': ')
+				key_value = str.strip.split(': ')
 				# sometimes, fields are empty - 'AccountCode: ' - we don't want that
 				if key_value.count > 1
 					response_array << key_value
@@ -84,6 +139,12 @@ module AsteriksListener
 		def to_json
 			self.event.to_json
 		end
+	end
+
+
+
+	class AMI_EventProcessor
+
 	end
 
 
