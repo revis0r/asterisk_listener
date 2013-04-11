@@ -37,17 +37,19 @@ module AsteriksListener
 		def listen_events
 			event = AMI_Event.new
 			self.cnt = 0			
-			while self.cnt != 100 do
+			while self.cnt != 200 do
 				line = ''	
-				until /\s{2}/n === line do
-					line += @sock.readpartial(512)								
-				end
+				# until /\s{4}/n === line do
+				# 	line += @sock.gets
+				# 	@log.puts line.inspect
+				# end
+				line += @sock.gets "\r\n\r\n"
 				event.read_event line
-				process_event event.event
+				process_event event.event				
 				
-				#@log.print( "====#{count}====\n\n #{event.event.inspect}\n\n" )
 				STDERR.puts "#{self.cnt}\n#{line}"				
 				self.cnt += 1
+
 			end
 			self.events.each do |k, v|
 				@log.puts "\n\n===========#{k}=============\n"
@@ -82,8 +84,7 @@ module AsteriksListener
 						save_event ami_event
 					when 'Bridge'				
 						#@log.puts "Bridge #{ami_event["Bridgestate"]}\n#{ami_event["Channel1"]} to #{ami_event["Channel2"]}\nu #{ami_event["CallerID1"]} to #{ami_event["CallerID2"]}\n\n"
-					when 'Unlink'
-						#@log.puts "Unlink \n#{ami_event["Channel1"]} to #{ami_event["Channel2"]}\n#{ami_event["CallerID1"]} to #{ami_event["CallerID2"]}\n\n"
+						save_event ami_event					
 					when 'Hangup'
 						#@log.puts "Hangup #{ami_event["Channel"]}, number: #{ami_event["CallerIDNum"]}\n\n"
 						save_event ami_event
@@ -104,7 +105,13 @@ module AsteriksListener
 					self.events[sip[1]][ami_event["Event"] + "   #{Time.now.hour}:#{Time.now.min}"] = ami_event
 				end
 			elsif ami_event.has_key? "Channel1"
-
+				sip = %r{^\w{,5}/(\w*)}.match ami_event["Channel1"]
+				if sip
+					unless self.events.has_key? sip[1]
+						self.events[sip[1]] = {}
+					end
+					self.events[sip[1]][ami_event["Event"] + "   #{Time.now.hour}:#{Time.now.min}"] = ami_event
+				end
 			end
 		end
 	end
