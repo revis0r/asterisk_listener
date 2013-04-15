@@ -5,7 +5,7 @@ module AsteriksListener
 	class Connection < Net::Telnet
 		SERVER  	= 'mail.gemir.ru'
 		PORT			= 3850
-		LOGIN			= "Action: Login\nUsername: crmmanager\nSecret: CrMPasswrd112\n"
+		LOGIN			= "Action: Login\nUsername: crmmanager\nSecret: CrMPasswrd112\nEvents: call\n"
 		MAX_FAILS = 10
 		attr_accessor :events, :cnt
 
