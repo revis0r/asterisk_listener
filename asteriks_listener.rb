@@ -1,8 +1,13 @@
-module AsteriksListener
+require 'rubygems'
+require 'mongo'
+
+
+module AsteriskListener
 	require 'net/telnet'
 	require 'json'
+	
 
-	class Connection < Net::Telnet
+	class AsteriskConnection < Net::Telnet
 		SERVER  	= 'mail.gemir.ru'
 		PORT			= 3850
 		LOGIN			= "Action: Login\nUsername: crmmanager\nSecret: CrMPasswrd112\nEvents: call\n"
@@ -34,7 +39,7 @@ module AsteriksListener
 			end
 		end
 
-		def listen_events
+		def listen_events			
 			event = AMI_Event.new
 			self.cnt = 0			
 			while self.cnt != 200 do
@@ -47,10 +52,10 @@ module AsteriksListener
 				event.read_event line
 				process_event event.event				
 				
-				STDERR.puts "#{self.cnt}\n#{line}"				
+				STDERR.puts "#{self.cnt}\n#{line}" if ARGV.include? "event_log"		
 				self.cnt += 1
-
 			end
+
 			self.events.each do |k, v|
 				@log.puts "\n\n===========#{k}=============\n"
 				v.each do |i, j|
@@ -74,20 +79,20 @@ module AsteriksListener
 					when "Dial"						
 						if ami_event["SubEvent"] == 'Begin'							
 							#@log.puts "Dial started for SIP #{ami_event["Channel"]} \n\n"
-							save_event ami_event
+							$events_db.insert ami_event
 						elsif ami_event["SubEvent"] == 'End'							
 							#@log.puts "Dial ended for SIP #{ami_event["Channel"]} \n\n"
-							save_event ami_event
+							$events_db.insert ami_event
 						end
 					when 'NewCallerid'
 						#@log.puts "New Caller ID SIP = #{ami_event["Channel"]} and UniqueID = #{ami_event["Uniqueid"]} and Calleridnum = #{ami_event["CallerIDNum"]}\n"
-						save_event ami_event
+						$events_db.insert ami_event
 					when 'Bridge'				
 						#@log.puts "Bridge #{ami_event["Bridgestate"]}\n#{ami_event["Channel1"]} to #{ami_event["Channel2"]}\nu #{ami_event["CallerID1"]} to #{ami_event["CallerID2"]}\n\n"
-						save_event ami_event					
+						$events_db.insert ami_event					
 					when 'Hangup'
 						#@log.puts "Hangup #{ami_event["Channel"]}, number: #{ami_event["CallerIDNum"]}\n\n"
-						save_event ami_event
+						$events_db.insert ami_event
 						
 				end
 
@@ -137,11 +142,7 @@ module AsteriksListener
 				end
 			end
 			self.event = Hash[response_array]
-		end
-
-		#def event=(string)			
-			#@event = Hash[*string.split("\n").map{ |s| s.split(": ")}.flatten]
-		#end
+		end		
 
 		def to_json
 			self.event.to_json
@@ -153,13 +154,22 @@ module AsteriksListener
 	class AMI_EventProcessor
 
 	end
+end
 
+# Connect to DB
+begin
+	@mongo_connection = Mongo::MongoClient.new('localhost', 27017)
+rescue Mongo::ConnectionFailure
+	@mongo_connection = Mongo::MongoClient.new
+else
+	include AsteriskListener
+	@db = @mongo_connection.db("asterisk_log")
+	$events_db = @db["events"]	
+	$events_db.drop()
+	conn = AsteriskConnection.new
+	if conn.authorize
+		conn.listen_events
+	end
 
 end
 
-include AsteriksListener
-
-conn = Connection.new
-if conn.authorize
-	conn.listen_events
-end
