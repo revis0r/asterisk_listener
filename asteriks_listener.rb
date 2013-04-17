@@ -23,6 +23,17 @@ module AsteriskListener
 					  #	"Waittime"	 => 10				
 						)
 			self.events = {}
+			# Connect to DB
+			begin
+				@mongo_connection = Mongo::MongoClient.new('localhost', 27017)
+			rescue Mongo::ConnectionFailure
+				@mongo_connection = Mongo::MongoClient.new
+			else				
+				@db = @mongo_connection.db("asterisk_log")
+				events_db = @db["events"]	
+				events_db.drop()
+				@processor = AMI_EventProcessor.new events_db
+			end
 		end
 
 		def authorize()	
@@ -43,11 +54,7 @@ module AsteriskListener
 			event = AMI_Event.new
 			self.cnt = 0			
 			while self.cnt != 200 do
-				line = ''	
-				# until /\s{4}/n === line do
-				# 	line += @sock.gets
-				# 	@log.puts line.inspect
-				# end
+				line = ''					
 				line += @sock.gets "\r\n\r\n"
 				event.read_event line
 				process_event event.event				
@@ -56,15 +63,15 @@ module AsteriskListener
 				self.cnt += 1
 			end
 
-			self.events.each do |k, v|
-				@log.puts "\n\n===========#{k}=============\n"
-				v.each do |i, j|
-					@log.puts "\t#{i}\n"
-					j.each do |x, z|
-						@log.puts "\t\t#{x}: #{z}\n" 
-					end
-				end
-			end
+			# self.events.each do |k, v|
+			# 	@log.puts "\n\n===========#{k}=============\n"
+			# 	v.each do |i, j|
+			# 		@log.puts "\t#{i}\n"
+			# 		j.each do |x, z|
+			# 			@log.puts "\t\t#{x}: #{z}\n" 
+			# 		end
+			# 	end
+			# end
 		end
 
 		def send_cmd(string)
@@ -72,31 +79,20 @@ module AsteriskListener
 			write string + "\n\n"
 		end
 
-		def process_event(ami_event)			
-			unless ami_event.empty?	
-				#@log.puts ami_event["Event"]			
-				case ami_event["Event"]
+		def process_event(event)			
+			unless event.empty?	
+
+				case event["Event"]
 					when "Dial"						
-						if ami_event["SubEvent"] == 'Begin'							
-							#@log.puts "Dial started for SIP #{ami_event["Channel"]} \n\n"
-							$events_db.insert ami_event
-						elsif ami_event["SubEvent"] == 'End'							
-							#@log.puts "Dial ended for SIP #{ami_event["Channel"]} \n\n"
-							$events_db.insert ami_event
-						end
+						@processor.process_dial event
 					when 'NewCallerid'
-						#@log.puts "New Caller ID SIP = #{ami_event["Channel"]} and UniqueID = #{ami_event["Uniqueid"]} and Calleridnum = #{ami_event["CallerIDNum"]}\n"
-						$events_db.insert ami_event
+						@processor.process_new_caller event
 					when 'Bridge'				
-						#@log.puts "Bridge #{ami_event["Bridgestate"]}\n#{ami_event["Channel1"]} to #{ami_event["Channel2"]}\nu #{ami_event["CallerID1"]} to #{ami_event["CallerID2"]}\n\n"
-						$events_db.insert ami_event					
+						@processor.process_bridge event					
 					when 'Hangup'
-						#@log.puts "Hangup #{ami_event["Channel"]}, number: #{ami_event["CallerIDNum"]}\n\n"
-						$events_db.insert ami_event
+						@processor.process_hangup event
 						
 				end
-
-
 			end
 		end
 
@@ -153,23 +149,37 @@ module AsteriskListener
 
 	class AMI_EventProcessor
 
+		def initialize(db_instance)
+			@events_db = db_instance
+		end
+
+		def process_dial(event)
+			STDERR.puts 'dial'
+			@events_db.insert({"event" => "dial"})
+		end
+
+		def process_new_caller(event)
+			STDERR.puts 'new_caller'
+			@events_db.insert({"event" => "new_caller"})
+		end
+
+		def process_hangup(event)
+			STDERR.puts 'hangup'
+			@events_db.insert({"event" => "hangup"})
+		end
+
+		def process_bridge(event)
+			STDERR.puts 'bridge'
+			@events_db.insert({"event" => "bridge"})
+		end
+
 	end
+
 end
 
-# Connect to DB
-begin
-	@mongo_connection = Mongo::MongoClient.new('localhost', 27017)
-rescue Mongo::ConnectionFailure
-	@mongo_connection = Mongo::MongoClient.new
-else
-	include AsteriskListener
-	@db = @mongo_connection.db("asterisk_log")
-	$events_db = @db["events"]	
-	$events_db.drop()
-	conn = AsteriskConnection.new
-	if conn.authorize
-		conn.listen_events
-	end
+include AsteriskListener
 
+conn = AsteriskConnection.new
+if conn.authorize
+	conn.listen_events
 end
-
