@@ -153,24 +153,47 @@ module AsteriskListener
 			@events_db = db_instance
 		end
 
-		def process_dial(event)
-			STDERR.puts 'dial'
-			@events_db.insert({"event" => "dial"})
+		def process_dial(e)
+			if e["SubEvent"] == "Begin"
+
+				sip = %r{^\w{,5}/(\w*)}.match e["Channel"] # extract sip
+				tmp_caller_id = e["CallerIDNum"].to_i
+
+				@events_db.insert({
+					"sip" => sip[1],
+					"event" => {
+						"asterisk_id" => e["DestUniqueID"],
+						#"call_record_id" => ???? wtf is it?
+						"channel"    => e["Channel"],
+						"call_state" => "NeedID",
+						"direction"  => "O", # O = outbound call (only it for now)
+						"CallerID"   => tmp_caller_id,
+						"timestamp"  => Time.now.to_i						
+					}
+
+				})
+			end
 		end
 
 		def process_new_caller(event)
-			STDERR.puts 'new_caller'
-			@events_db.insert({"event" => "new_caller"})
+			sip 					= %r{^\w{,5}/(\w*)}.match e["Channel"] # extract sip
+			tmp_caller_id = e["CallerIDNum"].to_i
+			id 						= e["Uniqueid"]
+			@events_db.update(
+				# where event: asterisk_id = id
+				{ "event.asterisk_id" => id },
+				# change event call state to Dial and update callerID
+				{ "$set" => {"event.call_state" => "Dial", "event.CallerID" => tmp_caller_id } } 
+			)
+
 		end
 
 		def process_hangup(event)
-			STDERR.puts 'hangup'
-			@events_db.insert({"event" => "hangup"})
+			
 		end
 
 		def process_bridge(event)
-			STDERR.puts 'bridge'
-			@events_db.insert({"event" => "bridge"})
+			
 		end
 
 	end
