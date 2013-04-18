@@ -30,9 +30,9 @@ module AsteriskListener
 				@mongo_connection = Mongo::MongoClient.new
 			else				
 				@db = @mongo_connection.db("asterisk_log")
-				events_db = @db["events"]	
-				events_db.drop()
-				@processor = AMI_EventProcessor.new events_db
+				@db["events"].drop
+				@db["calls"].drop
+				@processor = AMI_EventProcessor.new @db
 			end
 		end
 
@@ -132,10 +132,10 @@ module AsteriskListener
 			response_array = []			
 			@source_string.split("\n").each do |str|
 				key_value = str.strip.split(': ')
-				# sometimes, fields are empty - 'AccountCode: ' - we don't want that
-				if key_value.count > 1
-					response_array << key_value
-				end
+				# sometimes, fields are empty - 'AccountCode: ' - then it must become ["AccountCode", ""]
+				key_value.push ''	if key_value.count == 1
+				
+				response_array << key_value
 			end
 			self.event = Hash[response_array]
 		end		
@@ -150,7 +150,7 @@ module AsteriskListener
 	class AMI_EventProcessor
 
 		def initialize(db_instance)
-			@events_db = db_instance
+			@db = db_instance
 		end
 
 		def process_dial(e)
@@ -159,11 +159,18 @@ module AsteriskListener
 				sip = %r{^\w{,5}/(\w*)}.match e["Channel"] # extract sip
 				tmp_caller_id = e["CallerIDNum"].to_i
 
-				@events_db.insert({
+				call_record_id = @db['calls'].insert({
+					'sip' => sip[1],
+					'start_time' => Time.now
+				})
+
+				@db['events'].insert(e)
+
+				@db['events'].insert({
 					"sip" => sip[1],
 					"event" => {
 						"asterisk_id" => e["DestUniqueID"],
-						#"call_record_id" => ???? wtf is it?
+						"call_record_id" => call_record_id,
 						"channel"    => e["Channel"],
 						"call_state" => "NeedID",
 						"direction"  => "O", # O = outbound call (only it for now)
@@ -175,24 +182,23 @@ module AsteriskListener
 			end
 		end
 
-		def process_new_caller(event)
-			sip 					= %r{^\w{,5}/(\w*)}.match e["Channel"] # extract sip
+		def process_new_caller(e)			
 			tmp_caller_id = e["CallerIDNum"].to_i
 			id 						= e["Uniqueid"]
-			@events_db.update(
+			res = @db['events'].update(
 				# where event: asterisk_id = id
 				{ "event.asterisk_id" => id },
 				# change event call state to Dial and update callerID
 				{ "$set" => {"event.call_state" => "Dial", "event.CallerID" => tmp_caller_id } } 
 			)
-
+			STDERR.puts res.inspect
 		end
 
-		def process_hangup(event)
+		def process_hangup(e)
 			
 		end
 
-		def process_bridge(event)
+		def process_bridge(e)
 			
 		end
 
