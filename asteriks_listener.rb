@@ -30,9 +30,9 @@ module AsteriskListener
 				@mongo_connection = Mongo::MongoClient.new
 			else				
 				@db = @mongo_connection.db("asterisk_log")
-				@db["events"].drop
-				@db["calls"].drop
-				@db["raw_dials"].drop
+				@db["events"].remove
+				@db["calls"].remove
+				@db["raw_dials"].remove
 				@processor = AMI_EventProcessor.new @db
 			end
 		end
@@ -54,7 +54,7 @@ module AsteriskListener
 		def listen_events			
 			event = AMI_Event.new
 			self.cnt = 0			
-			while self.cnt != 200 do
+			while self.cnt != 500 do
 				line = ''					
 				line += @sock.gets "\r\n\r\n"
 				event.read_event line
@@ -62,17 +62,16 @@ module AsteriskListener
 				
 				STDERR.puts "#{self.cnt}\n#{line}" if ARGV.include? "event_log"		
 				self.cnt += 1
+
+				# check MongoDB connection
+				if !@mongo_connection.connected?
+					@mongo_connection.reconnect
+					if !@mongo_connection.connected?
+						raise Mongo::ConnectionFailure, 'DB error! Connection to DB lost =('
+					end
+				end
 			end
 
-			# self.events.each do |k, v|
-			# 	@log.puts "\n\n===========#{k}=============\n"
-			# 	v.each do |i, j|
-			# 		@log.puts "\t#{i}\n"
-			# 		j.each do |x, z|
-			# 			@log.puts "\t\t#{x}: #{z}\n" 
-			# 		end
-			# 	end
-			# end
 		end
 
 		def send_cmd(string)
@@ -91,13 +90,13 @@ module AsteriskListener
 					when 'Bridge'				
 						@processor.process_bridge event					
 					when 'Hangup'
-						@processor.process_hangup event
-						
+						@processor.process_hangup event						
 				end
 			end
 		end
 
 		def save_event(ami_event)
+			# Saves event in event instance variable in format: {"SIP" => { event-hash } }
 			if ami_event.has_key? "Channel"
 				sip = %r{^\w{,5}/(\w*)}.match ami_event["Channel"]
 				if sip
@@ -218,13 +217,12 @@ module AsteriskListener
 		def process_new_caller(e)			
 			tmp_caller_id = e["CallerIDNum"]
 			id 						= e["Uniqueid"]
-			res = @db['events'].update(
+			@db['events'].update(
 				# where event: asterisk_id = id
 				{ "event.asterisk_id" => id },
 				# change event call state to Dial and update callerID
 				{ "$set" => {"event.call_state" => "Dial", "event.CallerID" => tmp_caller_id } } 
-			)
-			#STDERR.puts res.inspect
+			)			
 		end
 
 		def process_hangup(e)
@@ -265,9 +263,19 @@ module AsteriskListener
 						# AND asterisk_dest_id NOT EQUAL e.Uniqueid2
 						'event.asterisk_dest_id' => {'$ne' => e['Uniqueid2']}
 						}, 
-						{:fields => ['event.call_record_id'], :limit => 1 }).to_a
+						{:fields => ['event.call_record_id']}).to_a
+					
+					unless res.empty?
+						STDERR.puts "++++++++Found #{res.count} record!\nDeleting...\n Calls count = #{@db['calls'].count}"						
+						res.each do |record|							
+							@db['calls'].remove({"_id" => record['event']['call_record_id']})
+						end
+						STDERR.puts "Calls count after deletion = #{@db['calls'].count}"
+
+					end
 
 				else
+					# Outbound
 					# set CONNECTED state and timestamp, when connection established for Outbound bridge event
 					@db['events'].update({
 						'$or' => [
