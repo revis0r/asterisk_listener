@@ -1,33 +1,47 @@
 module AsteriskListener
 	class AMI_EventProcessor
-		LOCAL_REGEXP = %r{^L}
-		SIP_REGEXP	 = %r{^\w{,5}/(\w*)}
+		LOCAL_REGEXP 				= %r{^L}
+		SIP_REGEXP	 				= %r{^\w{,5}/(\w*)}
+		DIALSTRING_REGEXP 	= %r{^(\d*)}
+		INTERNAL_NUM_REGEXP = %r{^\d{4}$}
 
 		def initialize(db_instance)
 			@db = db_instance
 		end
 
+		def extract_sip(sip)
+			SIP_REGEXP.match(sip)[1]
+		end
+
 		def process_dial(e)
 			if e["SubEvent"] == "Begin"
-				
-				# check if internal call, then skip
-				unless LOCAL_REGEXP === e["Channel"] || LOCAL_REGEXP === e["Destination"]
-					 
-					sip = SIP_REGEXP.match e["Channel"] # extract sip
+				initiator_sip 	= extract_sip e['Channel']
+				destination_sip = extract_sip e['Destination']
+
+				# check if internal call (contains Local/xxxxyyyyy) OR local call (from xxxx to yyyy), then skip 
+				unless (
+					(LOCAL_REGEXP === e["Channel"] || LOCAL_REGEXP === e["Destination"]
+						) || (
+						INTERNAL_NUM_REGEXP === initiator_sip && INTERNAL_NUM_REGEXP === destination_sip)
+				)					 
+					
 					tmp_caller_id = e["CallerIDNum"]
 
 					# create init call record				
 					call_record_id = @db['calls'].insert({
-						'sip' => sip[1],
+						'sip' => initiator_sip,
 						'start_time' => Time.now						
 					})	
 
-					# attemp to detect call direction
-					if (LOCAL_REGEXP === e["Channel"]) && (not LOCAL_REGEXP === e["Destination"])						
+					# if Initiator (CallerIDNum) number is internal (4-digit number)
+					# AND
+					# Destination number is NOT internal
+					# Then it's outbound call
+					if((INTERNAL_NUM_REGEXP === initiator_sip) && (not INTERNAL_NUM_REGEXP === destination_sip))						
 						call_direction = 'outbound'
 						
 						@db['events'].insert({
-							'sip' => sip[1],
+							'sip' => initiator_sip,
 							'event' => {
 								'asterisk_id' 	 => e['DestUniqueID'],
 								'call_record_id' => call_record_id,
@@ -39,11 +53,11 @@ module AsteriskListener
 								'timestamp_call'  => Time.now.to_i						
 							}
 						})
-					elsif (not LOCAL_REGEXP === e['Channel'])
+					elsif((not INTERNAL_NUM_REGEXP === initiator_sip) && (INTERNAL_NUM_REGEXP === destination_sip))						
 						call_direction = 'inbound'
 						
 						@db['events'].insert({
-							'sip' => sip[1],
+							'sip' => destination_sip,
 							'event' => {
 								'asterisk_id' 	 => e['UniqueID'],
 								'call_record_id' => call_record_id,
