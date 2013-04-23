@@ -26,19 +26,21 @@ module AsteriskListener
 				)					 
 					
 					tmp_caller_id = e["CallerIDNum"]
+					call_start_time = Time.now.to_i
 
-					# create init call record				
-					call_record_id = @db['calls'].insert({
-						'sip' => initiator_sip,
-						'start_time' => Time.now						
-					})	
-
-					# if Initiator (CallerIDNum) number is internal (4-digit number)
+					# if Initiator (channel) number is internal (4-digit number)
 					# AND
 					# Destination number is NOT internal
 					# Then it's outbound call
 					if((INTERNAL_NUM_REGEXP === initiator_sip) && (not INTERNAL_NUM_REGEXP === destination_sip))						
 						call_direction = 'outbound'
+
+						# create init call record				
+						call_record_id = @db['calls'].insert({
+							'sip' => initiator_sip,
+							'start_time' => call_start_time,
+							'direction'  => call_direction
+						})
 						
 						@db['events'].insert({
 							'sip' => initiator_sip,
@@ -55,6 +57,13 @@ module AsteriskListener
 						})
 					elsif((not INTERNAL_NUM_REGEXP === initiator_sip) && (INTERNAL_NUM_REGEXP === destination_sip))						
 						call_direction = 'inbound'
+
+						# create init call record				
+						call_record_id = @db['calls'].insert({
+							'sip' => destination_sip,
+							'start_time' => call_start_time,
+							'direction'  => call_direction
+						})
 						
 						@db['events'].insert({
 							'sip' => destination_sip,
@@ -70,11 +79,9 @@ module AsteriskListener
 								'asterisk_dest_id' => e['DestUniqueID']						
 							}
 						})
-					end
+					end											
 
-					# update call direction
-					@db['calls'].update({'_id' => call_record_id}, {'$set' => {'direction' => call_direction}})							
-
+					# insert raw event (for debug info)
 					@db['raw_dials'].insert(e)				
 				end
 			end
@@ -92,7 +99,74 @@ module AsteriskListener
 		end
 
 		def process_hangup(e)
-			
+			id   = e['Uniqueid']			
+
+			#find corresponding call
+			call = @db["events"].find({
+				'$or' => [
+						{'event.asterisk_dest_id' => id},
+						{'event.asterisk_id' 			=> id}
+					]
+			}, {:fields => ['event.direction'], :limit => 1 }).to_a
+
+			unless call.empty?
+				hangup_time = Time.now.to_i
+				direction = call[0]['event']['direction'] 
+				direction == 'I' ? call_direction = 'Inbound' : call_direction = 'Outbound'
+
+				if call_direction == 'Outbound'
+					result = @db['events'].update({
+						# where asterisk_id = Hangup event Uniqueid
+						"event.asterisk_id"  => id}, \
+						# change event call state to Hangup, and add hangup_timestamp
+						{"$set" => {
+							'event.call_state' => 'Hangup',
+							'event.timestamp_hangup' => hangup_time,
+							'event.hangup_cause' 		 => e['Cause'],
+							'event.hangup_cause_txt' => e['Cause-txt']
+							}
+						})
+
+					if result['n'] > 0 && result['updatedExisting'] == true #update success
+
+						updated_call = @db['events'].find_one({'event.asterisk_id' => id}) #hash
+						#calculate call duration
+						failed_call = false
+						call_duration_sec = 0
+
+						if updated_call['event'].has_key? 'timestamp_link'
+							call_link_time 		= updated_call['event']['timestamp_link']
+							call_duration_raw = hangup_time - call_link_time
+							# recalculate in hours and minutes
+							call_duration_minutes = call_duration_raw / 60
+							call_duration_hours   = call_duration_minutes / 60
+							call_duration_sec			= call_duration_raw % 60
+							call_duration 				= "#{call_duration_hours}:#{call_duration_minutes}:#{call_duration_sec}"
+						else
+							# if there is no link timestamp then call is failed
+							failed_call = true
+						end
+
+						if !failed_call && call_duration_sec > 0
+							STDERR.puts "success call. length: #{call_duration_raw};  duration: #{call_duration}"
+							# update success call
+							@db['calls'].update(
+								{'_id' => updated_call['event']['call_record_id']},
+								{'$set' => {
+									'minutes' => call_duration_minutes,
+									'seconds' => call_duration_sec,
+									'hours'		=> call_duration_hours,
+									'duration'=> call_duration
+									}
+								}
+							)
+							@db['raw_hangups'].insert(e)
+						else
+							STDERR.puts 'failed_call'
+						end
+					end
+				end
+			end
 		end
 
 		def process_bridge(e)
@@ -112,9 +186,9 @@ module AsteriskListener
 				if call_direction == 'Inbound'
 					# set CONNECTED state and timestamp, when connection established
 					@db['events'].update({
-						'$or' => [
-								{'event.asterisk_dest_id' => e['Uniqueid1']},
-								{'event.asterisk_dest_id' => e['Uniqueid2']}
+						'$or'    => [
+								{'event.asterisk_dest_id'   => e['Uniqueid1']},
+								{'event.asterisk_dest_id'   => e['Uniqueid2']}
 							]}, 
 						{
 							'$set' => {'event.call_state' => 'Connected', 'event.timestamp_link' => Time.now.to_i}
@@ -149,8 +223,6 @@ module AsteriskListener
 						{
 							'$set' => {'event.call_state' => 'Connected', 'event.timestamp_link' => Time.now.to_i}
 						})
-
-
 				end
 			end			
 		end

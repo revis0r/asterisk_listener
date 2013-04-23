@@ -10,7 +10,7 @@ module AsteriskListener
 		def initialize(debug = false)
 			super("Host" => SERVER,
 						"Port" => PORT,
-						"Output_log" => "asteriks_log.log",
+						#"Output_log" => "asteriks_log.log",
 						"Telnetmode" => false
 					  #	"Waittime"	 => 10				
 						)
@@ -25,6 +25,7 @@ module AsteriskListener
 				@db["events"].remove
 				@db["calls"].remove
 				@db["raw_dials"].remove
+				@db["raw_hangups"].remove
 				@processor = AMI_EventProcessor.new @db
 			end
 		end
@@ -46,7 +47,7 @@ module AsteriskListener
 		def listen_events			
 			event = AMI_Event.new
 			self.cnt = 0			
-			while self.cnt != 200 do
+			while self.cnt != 1600 do
 				line = ''					
 				line += @sock.gets "\r\n\r\n"
 				event.read_event line
