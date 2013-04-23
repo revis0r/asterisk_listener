@@ -50,7 +50,7 @@ module AsteriskListener
 								'channel'    		 => e['Channel'],
 								'remote_channel' => e['Destination'],
 								'call_state' => 'NeedID',
-								'direction'  => 'O', # O = outbound call
+								'direction'  => 'Outbound',
 								'CallerID'   => tmp_caller_id,
 								'timestamp_call'  => Time.now.to_i						
 							}
@@ -73,7 +73,7 @@ module AsteriskListener
 								'channel'    		 => e['Destination'],
 								'remote_channel' => e['Channel'],
 								'call_state' => 'Dial',
-								'direction'  => 'I', # I = inbound call
+								'direction'  => 'Inbound',
 								'CallerID'   => tmp_caller_id,
 								'timestamp_call'   => Time.now.to_i,
 								'asterisk_dest_id' => e['DestUniqueID']						
@@ -112,9 +112,9 @@ module AsteriskListener
 			unless call.empty?
 				hangup_time = Time.now.to_i
 				direction = call[0]['event']['direction'] 
-				direction == 'I' ? call_direction = 'Inbound' : call_direction = 'Outbound'
+				#direction == 'I' ? call_direction = 'Inbound' : call_direction = 'Outbound'
 
-				if call_direction == 'Outbound'
+				if direction == 'Outbound'
 					result = @db['events'].update({
 						# where asterisk_id = Hangup event Uniqueid
 						"event.asterisk_id"  => id}, \
@@ -148,7 +148,7 @@ module AsteriskListener
 						end
 
 						if !failed_call && call_duration_sec > 0
-							STDERR.puts "success call. length: #{call_duration_raw};  duration: #{call_duration}"
+							STDERR.puts "Success outbound call. length: #{call_duration_raw} seconds;  duration: #{call_duration}"
 							# update success call
 							@db['calls'].update(
 								{'_id' => updated_call['event']['call_record_id']},
@@ -159,10 +159,65 @@ module AsteriskListener
 									'duration'=> call_duration
 									}
 								}
-							)
-							@db['raw_hangups'].insert(e)
+							)							
+						else							
+							STDERR.puts 'Failed outbound call. removing corresponding event and call record...'							
+							@db['calls'].remove({'_id' => updated_call['event']['call_record_id']})
+							@db['events'].remove({'_id' => updated_call['_id']})
+						end
+					end
+
+				else #Inbound call hangup event
+					result = @db['events'].update({
+						# where asterisk_dest_id = Hangup event Uniqueid
+						# ALL DIFFERENCE - astersik_DEST_id. not asterisk_id
+						"event.asterisk_dest_id"  => id}, \
+						# change event call state to Hangup, and add hangup_timestamp
+						{"$set" => {
+							'event.call_state' => 'Hangup',
+							'event.timestamp_hangup' => hangup_time,
+							'event.hangup_cause' 		 => e['Cause'],
+							'event.hangup_cause_txt' => e['Cause-txt']
+							}
+						})
+
+					if result['n'] > 0 && result['updatedExisting'] == true #update success
+
+						updated_call = @db['events'].find_one({'event.asterisk_dest_id' => id}) #hash
+						#calculate call duration
+						failed_call = false
+						call_duration_sec = 0
+
+						if updated_call['event'].has_key? 'timestamp_link'
+							call_link_time 		= updated_call['event']['timestamp_link']
+							call_duration_raw = hangup_time - call_link_time
+							# recalculate in hours and minutes
+							call_duration_minutes = call_duration_raw / 60
+							call_duration_hours   = call_duration_minutes / 60
+							call_duration_sec			= call_duration_raw % 60
+							call_duration 				= "#{call_duration_hours}:#{call_duration_minutes}:#{call_duration_sec}"
 						else
-							STDERR.puts 'failed_call'
+							# if there is no link timestamp then call is failed
+							failed_call = true
+						end
+
+						if !failed_call && call_duration_sec > 0
+							STDERR.puts "Success inbound call. length: #{call_duration_raw} seconds;  duration: #{call_duration}"
+							# update success call
+							@db['calls'].update(
+								{'_id' => updated_call['event']['call_record_id']},
+								{'$set' => {
+									'minutes' => call_duration_minutes,
+									'seconds' => call_duration_sec,
+									'hours'		=> call_duration_hours,
+									'duration'=> call_duration
+									}
+								}
+							)							
+						else							
+							STDERR.puts 'Failed inbound call. removing corresponding event and call record...'							
+							@db['calls'].remove({'_id' => updated_call['event']['call_record_id']})
+							@db['events'].remove({'_id' => updated_call['_id']})
 						end
 					end
 				end
@@ -181,9 +236,9 @@ module AsteriskListener
 			unless call.empty?
 				direction = call[0]['event']['direction'] 
 
-				direction == 'I' ? call_direction = 'Inbound' : call_direction = 'Outbound'
+				#direction == 'I' ? call_direction = 'Inbound' : call_direction = 'Outbound'
 
-				if call_direction == 'Inbound'
+				if direction == 'Inbound'
 					# set CONNECTED state and timestamp, when connection established
 					@db['events'].update({
 						'$or'    => [
