@@ -13,10 +13,16 @@ module AsteriskListener
 			SIP_REGEXP.match(sip)[1]
 		end
 
+		def extract_dialstring(dialstring)
+			num = DIALSTRING_REGEXP.match(dialstring)[1]
+			#strip 1000 in the begin of dialstring, when calling through insit_chel provider
+			num.gsub(/^1000/, ' ') 
+		end
+
 		def process_dial(e)
 			if e["SubEvent"] == "Begin"
 				initiator_sip 	= extract_sip e['Channel']
-				destination_sip = extract_sip e['Destination']
+				destination_sip = extract_sip e['Destination']	
 
 				# check if internal call (contains Local/xxxxyyyyy) OR local call (from xxxx to yyyy), then skip 
 				unless (
@@ -24,8 +30,8 @@ module AsteriskListener
 						) || (
 						INTERNAL_NUM_REGEXP === initiator_sip && INTERNAL_NUM_REGEXP === destination_sip)
 				)					 
-					
-					tmp_caller_id = e["CallerIDNum"]
+					dialstring 			= extract_dialstring e['Dialstring']
+					tmp_caller_id 	= e["CallerIDNum"]
 					call_start_time = Time.now.to_i
 
 					# if Initiator (channel) number is internal (4-digit number)
@@ -52,7 +58,9 @@ module AsteriskListener
 								'call_state' => 'NeedID',
 								'direction'  => 'Outbound',
 								'CallerID'   => tmp_caller_id,
-								'timestamp_call'  => Time.now.to_i						
+								'timestamp_call' => Time.now.to_i,
+								'dialstring'		 => dialstring
+
 							}
 						})
 					elsif((not INTERNAL_NUM_REGEXP === initiator_sip) && (INTERNAL_NUM_REGEXP === destination_sip))						
@@ -76,7 +84,8 @@ module AsteriskListener
 								'direction'  => 'Inbound',
 								'CallerID'   => tmp_caller_id,
 								'timestamp_call'   => Time.now.to_i,
-								'asterisk_dest_id' => e['DestUniqueID']						
+								'asterisk_dest_id' => e['DestUniqueID'],
+								'dialstring'			 =>	dialstring
 							}
 						})
 					end											
@@ -153,10 +162,13 @@ module AsteriskListener
 							@db['calls'].update(
 								{'_id' => updated_call['event']['call_record_id']},
 								{'$set' => {
-									'minutes' => call_duration_minutes,
-									'seconds' => call_duration_sec,
-									'hours'		=> call_duration_hours,
-									'duration'=> call_duration
+									'minutes' 		=> call_duration_minutes,
+									'seconds' 		=> call_duration_sec,
+									'hours'				=> call_duration_hours,
+									'duration'		=> call_duration,
+									'caller_num'	=> updated_call['event']['CallerID'],
+									'destination_num' => updated_call['event']['dialstring'],
+									'success'			=> 1
 									}
 								}
 							)							
@@ -195,7 +207,7 @@ module AsteriskListener
 							call_duration_minutes = call_duration_raw / 60
 							call_duration_hours   = call_duration_minutes / 60
 							call_duration_sec			= call_duration_raw % 60
-							call_duration 				= "#{call_duration_hours}:#{call_duration_minutes}:#{call_duration_sec}"
+							call_duration 				= "#{format('%02d', call_duration_hours)}:#{format('%02d',call_duration_minutes)}:#{format('%02d',call_duration_sec)}"
 						else
 							# if there is no link timestamp then call is failed
 							failed_call = true
@@ -210,7 +222,10 @@ module AsteriskListener
 									'minutes' => call_duration_minutes,
 									'seconds' => call_duration_sec,
 									'hours'		=> call_duration_hours,
-									'duration'=> call_duration
+									'duration'=> call_duration,
+									'caller_num'			=> updated_call['event']['dialstring'],
+									'destination_num' => updated_call['event']['CallerID'],
+									'success'	=> 1
 									}
 								}
 							)							

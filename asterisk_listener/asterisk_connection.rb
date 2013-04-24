@@ -24,8 +24,7 @@ module AsteriskListener
 				@db = @mongo_connection.db("asterisk_log")
 				@db["events"].remove
 				@db["calls"].remove
-				@db["raw_dials"].remove
-				@db["raw_hangups"].remove
+				@db["raw_dials"].remove				
 				@processor = AMI_EventProcessor.new @db
 			end
 		end
