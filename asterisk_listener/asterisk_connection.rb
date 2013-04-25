@@ -22,6 +22,7 @@ module AsteriskListener
 				@mongo_connection = Mongo::MongoClient.new
 			else				
 				@db = @mongo_connection.db("asterisk_log")
+				# remove all records from all collections. for development period.				
 				@db["events"].remove
 				@db["calls"].remove
 				@db["raw_dials"].remove				
@@ -57,7 +58,7 @@ module AsteriskListener
 
 				# check MongoDB connection
 				if !@mongo_connection.connected?
-					@mongo_connection.reconnect
+					@mongo_connection.reconnect # always returns nil
 					if !@mongo_connection.connected?
 						raise Mongo::ConnectionFailure, 'DB error! Connection to DB lost =('
 					end

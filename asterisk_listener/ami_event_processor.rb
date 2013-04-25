@@ -150,7 +150,7 @@ module AsteriskListener
 							call_duration_minutes = call_duration_raw / 60
 							call_duration_hours   = call_duration_minutes / 60
 							call_duration_sec			= call_duration_raw % 60
-							call_duration 				= "#{call_duration_hours}:#{call_duration_minutes}:#{call_duration_sec}"
+							call_duration 				= "#{format('%02d', call_duration_hours)}:#{format('%02d',call_duration_minutes)}:#{format('%02d',call_duration_sec)}"
 						else
 							# if there is no link timestamp then call is failed
 							failed_call = true
@@ -166,8 +166,8 @@ module AsteriskListener
 									'seconds' 		=> call_duration_sec,
 									'hours'				=> call_duration_hours,
 									'duration'		=> call_duration,
-									'caller_num'	=> updated_call['event']['CallerID'],
-									'destination_num' => updated_call['event']['dialstring'],
+									'caller_num'	=> updated_call['sip'], #updated_call['event']['CallerID'],
+									'remote_num'  => updated_call['event']['dialstring'],
 									'success'			=> 1
 									}
 								}
@@ -223,8 +223,8 @@ module AsteriskListener
 									'seconds' => call_duration_sec,
 									'hours'		=> call_duration_hours,
 									'duration'=> call_duration,
-									'caller_num'			=> updated_call['event']['dialstring'],
-									'destination_num' => updated_call['event']['CallerID'],
+									'caller_num' => updated_call['event']['CallerID'],
+									'remote_num' => updated_call['event']['dialstring'],
 									'success'	=> 1
 									}
 								}
@@ -267,20 +267,19 @@ module AsteriskListener
 					# TODO: Test, after hangup event implementation
 					# TODO: Test, why it finds records without hangup
 					# to delete all the extra inbound records created by the hangup event.
-					res = @db['events'].find({
-						# where asterisk_id = e.Uniqueid1
-						'event.asterisk_id' 		 => e['Uniqueid1'],
-						# AND asterisk_dest_id NOT EQUAL e.Uniqueid2
-						'event.asterisk_dest_id' => {'$ne' => e['Uniqueid2']}
-						}, 
-						{:fields => ['event.call_record_id']}).to_a
+					# res = @db['events'].find({
+					# 	# where asterisk_id = e.Uniqueid1
+					# 	'event.asterisk_id' 		 => e['Uniqueid1'],
+					# 	# AND asterisk_dest_id NOT EQUAL e.Uniqueid2
+					# 	'event.asterisk_dest_id' => {'$ne' => e['Uniqueid2']}
+					# 	}, 
+					# 	{:fields => ['event.call_record_id']}).to_a
 					
-					unless res.empty?						
-						res.each do |record|							
-							@db['calls'].remove({"_id" => record['event']['call_record_id']})
-						end					
-
-					end
+					# unless res.empty?						
+					# 	res.each do |record|							
+					# 		@db['calls'].remove({"_id" => record['event']['call_record_id']})
+					# 	end			
+					# end
 
 				else
 					# Outbound
