@@ -1,4 +1,6 @@
 module AsteriskListener
+	# Event class for ami-events handling 
+
 	class AMI_Event
 		attr_accessor :source_string, :event		
 

@@ -1,0 +1,10 @@
+This is an example of Astersik AMI event listener by Tim Tikijian.
+It connects to the server by telnet and starts to process and save events to the Mongo DB.
+There is 2 collections in DB. Events and calls.
+Asterisk saves events frequently to the Events collection and after specific event chain it forms a Call 
+record in Calls collection.
+
+This code is just an example of how Astersik Events may be handled. It is NOT ready-to-use software,
+because each asterisk server and his SIP-numbers, prefixes, redirects, may be configured diffrently.
+But you can use AsteriskConnection and AsteriskEvent classes as a base, and build your own AteriskProcessor
+on top of it.

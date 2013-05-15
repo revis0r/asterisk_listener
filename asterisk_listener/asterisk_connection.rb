@@ -1,8 +1,8 @@
 module AsteriskListener
 	class AsteriskConnection < Net::Telnet
-		SERVER  	= 'mail.gemir.ru'
+		SERVER  	= 'your.asterisk.telnet.ru'
 		PORT			= 3850
-		LOGIN			= "Action: Login\nUsername: crmmanager\nSecret: CrMPasswrd112\nEvents: call\n"
+		LOGIN			= "Action: Login\nUsername: your_username\nSecret: your_password\nEvents: call\n"
 		MAX_FAILS = 10
 		attr_accessor :events, :cnt
 
@@ -31,7 +31,7 @@ module AsteriskListener
 		end
 
 		def authorize()	
-			@sock.readline	# read just one line after connect - Asterisk Call Manager/1.1 	
+			@sock.readline	# read just one line after connect - server returns: Asterisk Call Manager/1.1 	
 			response = AMI_Event.new (self.cmd("String" => LOGIN,
 																				 "Waittime" => 10,
 																				 "Match" => /\s{2}/n)
@@ -46,7 +46,8 @@ module AsteriskListener
 
 		def listen_events			
 			event = AMI_Event.new
-			self.cnt = 0			
+			self.cnt = 0
+			# read 1600 events then exit						
 			while self.cnt != 1600 do
 				line = ''					
 				line += @sock.gets "\r\n\r\n"
@@ -88,6 +89,7 @@ module AsteriskListener
 			end
 		end
 
+		# (for logging purpose)
 		def save_event(ami_event)
 			# Saves event in event instance variable in format: {"SIP" => { event-hash } }
 			if ami_event.has_key? "Channel"

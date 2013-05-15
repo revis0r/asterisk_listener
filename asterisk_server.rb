@@ -1,3 +1,5 @@
+# Little Sinatra server for saved events querying
+
 require 'rubygems'
 require 'sinatra'
 require 'mongo'

@@ -1,3 +1,5 @@
+# run this script to launch asterisk listener
+# run with argument "-event_log" to see some event logging
 require 'rubygems'
 require 'mongo'
 require 'net/telnet'
